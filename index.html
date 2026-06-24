@@ -152,8 +152,8 @@
 <div id="auth-screen">
   <div class="auth-card">
     <div class="auth-logo">V</div>
-    <h1 class="auth-title">Reserva de Visitas Comerciales</h1>
-    <p class="auth-sub">Agenda visitas de clientes en Sala A o Sala B. El registro queda visible para toda la empresa.</p>
+    <h1 class="auth-title">Visitas Comerciales - Sala B</h1>
+    <p class="auth-sub">Agenda visitas de clientes en Sala B. Acceso exclusivo para ejecutivos comerciales autorizados.</p>
     <button class="btn-ms" onclick="signIn()">
       <svg class="ms-logo" viewBox="0 0 23 23" fill="none">
         <rect x="1" y="1" width="10" height="10" fill="#f25022"/>
@@ -163,9 +163,17 @@
       </svg>
       Iniciar sesion con Microsoft
     </button>
-    <div class="auth-info"><p>Las visitas quedan registradas en el calendario compartido de Teams, visible para toda la empresa.</p></div>
+    <div class="auth-info"><p>Las visitas quedan registradas en el calendario de ventas. La sala se muestra como ocupada en la app de Salas de Reuniones, sin revelar el detalle del cliente.</p></div>
     <div class="auth-restricted"><p>Lunes, miercoles y viernes de 9:30 a 13:30 estos horarios estan reservados exclusivamente para ejecutivos comerciales autorizados.</p></div>
   </div>
+</div>
+
+<div id="denied-screen" style="display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:2rem;background:var(--bg);text-align:center;">
+  <div style="font-size:2.5rem;margin-bottom:1rem;color:var(--danger);">X</div>
+  <h2 style="font-size:1.3rem;font-weight:700;margin-bottom:.75rem;">Acceso no autorizado</h2>
+  <p style="color:var(--text2);font-size:.9rem;max-width:420px;line-height:1.6;margin-bottom:1.5rem;">Esta aplicacion es de uso exclusivo para ejecutivos comerciales autorizados. Si necesitas reservar una sala de reuniones, usa la app principal de Salas de Reuniones.</p>
+  <a href="https://alacalufexd.github.io/salas-app/" style="color:var(--accent);font-size:.85rem;margin-bottom:1rem;text-decoration:none;">Ir a Salas de Reuniones</a>
+  <button class="btn-logout" style="padding:9px 18px;margin-top:.5rem" onclick="signOut()">Cerrar sesion</button>
 </div>
 
 <div id="app">
@@ -186,7 +194,7 @@
   </nav>
 
   <div class="rules-banner">
-    Lun / Mie / Vie 9:30-13:30: solo ejecutivos comerciales autorizados &middot; Lunes 11:00-12:00: bloqueado (reunion interna) &middot; Fuera de estos horarios: cualquier persona de la empresa puede reservar
+    Sala B exclusiva para visitas comerciales &middot; Lun / Mie / Vie 9:30-13:30: solo ejecutivos comerciales autorizados &middot; Lunes 11:00-12:00: bloqueado (reunion interna)
   </div>
 
   <div class="controls">
@@ -197,7 +205,6 @@
     </div>
     <button class="btn-today" onclick="goToday()">Hoy</button>
     <div class="sala-legend">
-      <div class="legend-item"><div class="legend-dot" style="background:var(--sala1)"></div><span>Sala A</span></div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--sala2)"></div><span>Sala B</span></div>
     </div>
     <button class="btn-new" id="btn-new-visit" onclick="openBookingModal()">+ Nueva visita</button>
@@ -218,10 +225,7 @@
   <div class="modal">
     <h2>Nueva visita comercial</h2>
     <p class="modal-sub">La visita quedara registrada en el calendario compartido de Teams.</p>
-    <div class="sala-selector">
-      <div class="sala-card sala1-card" id="sc-sala1" onclick="selectSala(1)"><div class="sala-name">Sala A</div></div>
-      <div class="sala-card sala2-card" id="sc-sala2" onclick="selectSala(2)"><div class="sala-name">Sala B</div></div>
-    </div>
+    <div style="background:var(--sala2bg);border:1px solid var(--sala2border);border-radius:var(--radius);padding:10px 14px;margin-bottom:1.2rem;font-size:.85rem;color:#67e8f9;text-align:center;font-weight:600;">Sala B - Sala de Ventas</div>
     <div class="form-group">
       <label>Nombre del cliente</label>
       <input type="text" id="bk-title" placeholder="Ej: Familia Soto - Proyecto Pilpilen">
@@ -277,8 +281,11 @@ const CFG = {
   tenantId: 'dfae8d3b-8fb0-4e29-8b7b-42e7d17142cf',
   sala1Name: 'Sala A',
   sala2Name: 'Sala B',
+  // Calendario principal (Salas de Reuniones) - donde se refleja el bloqueo simple sin detalle
   centralAccount: 'asistenteti@mdai.cl',
-  adminEmails: ['aquintanilla@mdai.cl', 'asistenteti@mdai.cl']
+  // Calendario de ventas - donde se crea la cita real con el detalle del cliente
+  ventasAccount: 'ssoto@mdai.cl',
+  adminEmails: ['aquintanilla@mdai.cl', 'asistenteti@mdai.cl', 'ssoto@mdai.cl']
 };
 
 const VENDEDORES_AUTORIZADOS = [
@@ -329,7 +336,7 @@ let currentUser = null;
 let isAuthorizedVendor = false;
 let currentDate = new Date();
 let events = JSON.parse(localStorage.getItem('visitasapp_events') || '[]');
-let selectedSala = 1;
+const selectedSala = 2; // Solo Sala B en esta app
 let isGraphAvailable = false;
 
 const HOURS_START = 8;
@@ -383,11 +390,13 @@ function signOut() {
     msalInstance.logoutPopup({ account: currentUser }).then(function(){
       currentUser = null;
       document.getElementById('app').style.display = 'none';
+      document.getElementById('denied-screen').style.display = 'none';
       document.getElementById('auth-screen').style.display = 'flex';
     });
   } else {
     currentUser = null;
     document.getElementById('app').style.display = 'none';
+    document.getElementById('denied-screen').style.display = 'none';
     document.getElementById('auth-screen').style.display = 'flex';
   }
 }
@@ -406,6 +415,14 @@ async function getAccessToken() {
 function checkAuthorizationAndShow() {
   const myEmail = (currentUser && currentUser.username ? currentUser.username : '').toLowerCase();
   isAuthorizedVendor = isVendedorAutorizado(myEmail);
+  const isAdmin = CFG.adminEmails.map(function(e){return e.toLowerCase();}).indexOf(myEmail) !== -1;
+  // Esta app es de uso exclusivo para ejecutivos comerciales autorizados y administradores
+  if (!isAuthorizedVendor && !isAdmin) {
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('denied-screen').style.display = 'flex';
+    return;
+  }
   showApp();
 }
 
@@ -434,10 +451,12 @@ async function syncFromGraph() {
     const params = 'startDateTime=' + start + '&endDateTime=' + end + '&$select=id,subject,start,end,organizer,body,location,onlineMeeting&$top=200';
     const headers = { Authorization: 'Bearer ' + token, Prefer: 'outlook.timezone="America/Santiago"' };
     const myEmail = currentUser.username ? currentUser.username.toLowerCase() : '';
-    const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+    const isVentas = myEmail === CFG.ventasAccount.toLowerCase();
+
     let allEvents = [];
-    if (!isCentral) {
-      const r1 = await fetch('https://graph.microsoft.com/v1.0/users/' + CFG.centralAccount + '/calendarView?' + params, { headers: headers });
+
+    if (!isVentas) {
+      const r1 = await fetch('https://graph.microsoft.com/v1.0/users/' + CFG.ventasAccount + '/calendarView?' + params, { headers: headers });
       const d1 = await r1.json();
       if (d1.value && !d1.error) { allEvents = d1.value; }
       else {
@@ -450,6 +469,7 @@ async function syncFromGraph() {
       const d = await r.json();
       if (d.value) allEvents = d.value;
     }
+
     events = events.filter(function(e){ return !e.graphId; });
     mergeGraphEvents(allEvents);
     setSyncStatus('online', 'Sincronizado');
@@ -489,8 +509,8 @@ function extractDescription(bodyHtml) {
 }
 
 function detectSala(ge) {
+  // Esta app solo trabaja con Sala B
   const loc = ((ge.location && ge.location.displayName) || '').toLowerCase();
-  if (loc.indexOf('sala a') !== -1) return 1;
   if (loc.indexOf('sala b') !== -1) return 2;
   return null;
 }
@@ -521,19 +541,26 @@ function mergeGraphEvents(graphEvents) {
 async function createGraphEvent(eventData) {
   if (!isGraphAvailable || !currentUser) return null;
   const token = await getAccessToken();
-  const sala = eventData.sala === 1 ? CFG.sala1Name : CFG.sala2Name;
+  const sala = CFG.sala2Name; // Solo Sala B en esta app
   const myEmail = currentUser.username ? currentUser.username.toLowerCase() : '';
   const myName = currentUser.name || myEmail;
-  const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+  const isVentas = myEmail === CFG.ventasAccount.toLowerCase();
+
+  // ── Evento DETALLADO en el calendario de ventas (ssoto@mdai.cl) ──
   const attendees = [];
-  if (!isCentral) attendees.push({ emailAddress: { address: myEmail, name: myName }, type: 'required' });
+  if (!isVentas) attendees.push({ emailAddress: { address: myEmail, name: myName }, type: 'required' });
+  if (CFG.ventasAccount.toLowerCase() !== myEmail) {
+    attendees.push({ emailAddress: { address: CFG.ventasAccount, name: 'Visitas Comerciales' }, type: 'required' });
+  }
   CC_OBLIGATORIO.forEach(function(email){
     if (email.toLowerCase() !== myEmail) attendees.push({ emailAddress: { address: email, name: email }, type: 'optional' });
   });
+
   const htmlBody = '<p><b>Visita comercial - ' + sala + '</b></p>' +
     '<p><b>Organiza:</b> ' + myName + ' (' + myEmail + ')</p>' +
     '<p><b>Notas:</b> ' + (eventData.description || 'Sin notas') + '</p>' +
     '<br><p style="color:#555;font-size:12px">Reservado via VisitasApp MDA - ' + new Date().toLocaleString('es-CL') + '</p>';
+
   const graphBody = {
     subject: '[' + sala + '] ' + eventData.title,
     start: { dateTime: eventData.start, timeZone: 'America/Santiago' },
@@ -544,27 +571,63 @@ async function createGraphEvent(eventData) {
     onlineMeetingProvider: 'teamsForBusiness',
     attendees: attendees
   };
-  const centralUrl = isCentral ? 'https://graph.microsoft.com/v1.0/me/events' : 'https://graph.microsoft.com/v1.0/users/' + CFG.centralAccount + '/events';
-  let resp = await fetch(centralUrl, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(graphBody) });
+
+  const ventasUrl = isVentas ? 'https://graph.microsoft.com/v1.0/me/events' : 'https://graph.microsoft.com/v1.0/users/' + CFG.ventasAccount + '/events';
+  let resp = await fetch(ventasUrl, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(graphBody) });
   let created = await resp.json();
+
   if (created.error) {
     resp = await fetch('https://graph.microsoft.com/v1.0/me/events', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(graphBody) });
     created = await resp.json();
   }
+
+  // ── Evento ESPEJO simple en el calendario central (asistenteti@mdai.cl) ──
+  // Sin detalle del cliente, solo marca la sala como ocupada para la app principal
+  try {
+    const mirrorBody = {
+      subject: '[' + sala + '] Sala ocupada - Visita comercial',
+      start: { dateTime: eventData.start, timeZone: 'America/Santiago' },
+      end: { dateTime: eventData.end, timeZone: 'America/Santiago' },
+      location: { displayName: sala },
+      body: { contentType: 'HTML', content: '<p>Sala reservada para visita comercial. Detalle disponible en Visitas Comerciales.</p>' },
+      isOnlineMeeting: false
+    };
+    const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+    const mirrorUrl = isCentral ? 'https://graph.microsoft.com/v1.0/me/events' : 'https://graph.microsoft.com/v1.0/users/' + CFG.centralAccount + '/events';
+    const mirrorResp = await fetch(mirrorUrl, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(mirrorBody) });
+    const mirrorCreated = await mirrorResp.json();
+    if (created && mirrorCreated && mirrorCreated.id) {
+      created.mirrorId = mirrorCreated.id;
+    }
+  } catch(e) {
+    console.error('[VisitasApp] Error creando evento espejo:', e);
+  }
+
   return created;
 }
 
-async function cancelGraphEvent(graphId) {
+async function cancelGraphEvent(graphId, mirrorId) {
   if (!isGraphAvailable || !currentUser || !graphId) return false;
   try {
     const token = await getAccessToken();
     const myEmail = currentUser.username ? currentUser.username.toLowerCase() : '';
-    const isCentral = myEmail === CFG.centralAccount.toLowerCase();
-    const deleteUrl = isCentral ? 'https://graph.microsoft.com/v1.0/me/events/' + graphId : 'https://graph.microsoft.com/v1.0/users/' + CFG.centralAccount + '/events/' + graphId;
+    const isVentas = myEmail === CFG.ventasAccount.toLowerCase();
+    const deleteUrl = isVentas ? 'https://graph.microsoft.com/v1.0/me/events/' + graphId : 'https://graph.microsoft.com/v1.0/users/' + CFG.ventasAccount + '/events/' + graphId;
     const resp = await fetch(deleteUrl, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
-    if (resp.status === 204 || resp.status === 200) return true;
-    await fetch('https://graph.microsoft.com/v1.0/me/events/' + graphId, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
-    return true;
+    let mainOk = (resp.status === 204 || resp.status === 200);
+    if (!mainOk) {
+      await fetch('https://graph.microsoft.com/v1.0/me/events/' + graphId, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+      mainOk = true;
+    }
+    // Eliminar tambien el evento espejo en el calendario central
+    if (mirrorId) {
+      try {
+        const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+        const mirrorDeleteUrl = isCentral ? 'https://graph.microsoft.com/v1.0/me/events/' + mirrorId : 'https://graph.microsoft.com/v1.0/users/' + CFG.centralAccount + '/events/' + mirrorId;
+        await fetch(mirrorDeleteUrl, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+      } catch(e) { console.error('[VisitasApp] Error eliminando espejo:', e); }
+    }
+    return mainOk;
   } catch(e) { console.error('Cancel error:', e); return false; }
 }
 
@@ -591,9 +654,6 @@ function openBookingModal(prefillDate, prefillHour) {
   document.getElementById('bk-end').value = pad(h + 1) + ':00';
   document.getElementById('bk-title').value = '';
   document.getElementById('bk-desc').value = '';
-  selectedSala = 1;
-  document.getElementById('sc-sala1').classList.add('selected');
-  document.getElementById('sc-sala2').classList.remove('selected');
   hideConflict();
   modal.style.display = 'flex';
   checkFormConflict();
@@ -603,13 +663,6 @@ function openBookingModal(prefillDate, prefillHour) {
 }
 
 function closeBookingModal() { document.getElementById('booking-modal').style.display = 'none'; }
-
-function selectSala(n) {
-  selectedSala = n;
-  document.getElementById('sc-sala1').classList.toggle('selected', n === 1);
-  document.getElementById('sc-sala2').classList.toggle('selected', n === 2);
-  checkFormConflict();
-}
 
 function checkFormConflict() {
   const date = document.getElementById('bk-date').value;
@@ -661,13 +714,14 @@ async function createBooking() {
     title: title, sala: selectedSala, start: startDt, end: endDt,
     organizer: (currentUser && (currentUser.name || currentUser.username)) || 'Tu',
     organizerEmail: currentUser ? currentUser.username : null,
-    description: desc, graphId: null, teamsUrl: null
+    description: desc, graphId: null, mirrorId: null, teamsUrl: null
   };
   if (isGraphAvailable && currentUser) {
     try {
       const created = await createGraphEvent(eventData);
       if (created && created.id) {
         eventData.graphId = created.id;
+        eventData.mirrorId = created.mirrorId || null;
         eventData.teamsUrl = (created.onlineMeeting && created.onlineMeeting.joinUrl) || null;
         eventData.id = 'graph_' + created.id;
       }
@@ -715,7 +769,7 @@ async function cancelBooking(id) {
   closePanel();
   showLoading('Cancelando visita...');
   if (event.graphId && isGraphAvailable) {
-    const ok = await cancelGraphEvent(event.graphId);
+    const ok = await cancelGraphEvent(event.graphId, event.mirrorId);
     toast(ok ? 'Visita cancelada y eliminada de Teams' : 'Eliminada localmente', ok ? 'success' : 'info');
   } else {
     toast('Visita cancelada', 'success');
