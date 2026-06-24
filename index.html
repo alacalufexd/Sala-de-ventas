@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0f172a">
-<title>Reserva de Visitas Comerciales - MDA</title>
+<title>Agendamiento Pilpilen - MDA</title>
 <style>
   :root {
     --bg: #0f172a; --bg2: #1e293b; --bg3: #334155;
@@ -152,8 +152,8 @@
 <div id="auth-screen">
   <div class="auth-card">
     <div class="auth-logo">V</div>
-    <h1 class="auth-title">Visitas Comerciales - Sala B</h1>
-    <p class="auth-sub">Agenda visitas de clientes en Sala B. Acceso exclusivo para ejecutivos comerciales autorizados.</p>
+    <h1 class="auth-title">Agendamiento Pilpilen</h1>
+    <p class="auth-sub">Agenda visitas de clientes en Sala Pilpilen. Acceso exclusivo para ejecutivos comerciales autorizados.</p>
     <button class="btn-ms" onclick="signIn()">
       <svg class="ms-logo" viewBox="0 0 23 23" fill="none">
         <rect x="1" y="1" width="10" height="10" fill="#f25022"/>
@@ -178,7 +178,7 @@
 
 <div id="app">
   <nav class="topnav">
-    <div class="nav-logo">Visitas Comerciales</div>
+    <div class="nav-logo">Agendamiento Pilpilen</div>
     <span class="nav-badge">MDA Ventas</span>
     <div class="nav-spacer"></div>
     <a href="https://alacalufexd.github.io/salas-app/" class="nav-link-back">Ir a Salas de Reuniones</a>
@@ -194,7 +194,7 @@
   </nav>
 
   <div class="rules-banner">
-    Sala B exclusiva para visitas comerciales &middot; Lun / Mie / Vie 9:30-13:30: solo ejecutivos comerciales autorizados &middot; Lunes 11:00-12:00: bloqueado (reunion interna)
+    Sala Pilpilen exclusiva para visitas comerciales &middot; Lun / Mie / Vie 9:30-13:30: solo ejecutivos comerciales autorizados &middot; Lunes 11:00-12:00: bloqueado (reunion interna)
   </div>
 
   <div class="controls">
@@ -205,7 +205,7 @@
     </div>
     <button class="btn-today" onclick="goToday()">Hoy</button>
     <div class="sala-legend">
-      <div class="legend-item"><div class="legend-dot" style="background:var(--sala2)"></div><span>Sala B</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--sala2)"></div><span>Sala Pilpilen</span></div>
     </div>
     <button class="btn-new" id="btn-new-visit" onclick="openBookingModal()">+ Nueva visita</button>
   </div>
@@ -225,7 +225,7 @@
   <div class="modal">
     <h2>Nueva visita comercial</h2>
     <p class="modal-sub">La visita quedara registrada en el calendario compartido de Teams.</p>
-    <div style="background:var(--sala2bg);border:1px solid var(--sala2border);border-radius:var(--radius);padding:10px 14px;margin-bottom:1.2rem;font-size:.85rem;color:#67e8f9;text-align:center;font-weight:600;">Sala B - Sala de Ventas</div>
+    <div style="background:var(--sala2bg);border:1px solid var(--sala2border);border-radius:var(--radius);padding:10px 14px;margin-bottom:1.2rem;font-size:.85rem;color:#67e8f9;text-align:center;font-weight:600;">Sala Pilpilen</div>
     <div class="form-group">
       <label>Nombre del cliente</label>
       <input type="text" id="bk-title" placeholder="Ej: Familia Soto - Proyecto Pilpilen">
@@ -280,7 +280,7 @@ const CFG = {
   clientId: 'aadecb73-ba9b-4c1b-aa24-c8330fbddbb6',
   tenantId: 'dfae8d3b-8fb0-4e29-8b7b-42e7d17142cf',
   sala1Name: 'Sala A',
-  sala2Name: 'Sala B',
+  sala2Name: 'Sala Pilpilen',
   // Calendario principal (Salas de Reuniones) - donde se refleja el bloqueo simple sin detalle
   centralAccount: 'asistenteti@mdai.cl',
   // Calendario de ventas - donde se crea la cita real con el detalle del cliente
@@ -336,7 +336,7 @@ let currentUser = null;
 let isAuthorizedVendor = false;
 let currentDate = new Date();
 let events = JSON.parse(localStorage.getItem('visitasapp_events') || '[]');
-const selectedSala = 2; // Solo Sala B en esta app
+const selectedSala = 2; // Solo Sala Pilpilen en esta app
 let isGraphAvailable = false;
 
 const HOURS_START = 8;
@@ -509,9 +509,9 @@ function extractDescription(bodyHtml) {
 }
 
 function detectSala(ge) {
-  // Esta app solo trabaja con Sala B
+  // Esta app solo trabaja con Sala Pilpilen (location sigue usando "sala b" para compatibilidad)
   const loc = ((ge.location && ge.location.displayName) || '').toLowerCase();
-  if (loc.indexOf('sala b') !== -1) return 2;
+  if (loc.indexOf('sala pilpilen') !== -1 || loc.indexOf('sala b') !== -1) return 2;
   return null;
 }
 
@@ -523,7 +523,7 @@ function mergeGraphEvents(graphEvents) {
     const ev = {
       id: 'graph_' + ge.id,
       graphId: ge.id,
-      title: (ge.subject || 'Visita').replace(/^\[Sala [AB]\]\s*/i, ''),
+      title: (ge.subject || 'Visita').replace(/^\[Sala [^\]]+\]\s*/i, ''),
       sala: sala,
       start: ge.start.dateTime || ge.start,
       end: ge.end.dateTime || ge.end,
@@ -541,7 +541,7 @@ function mergeGraphEvents(graphEvents) {
 async function createGraphEvent(eventData) {
   if (!isGraphAvailable || !currentUser) return null;
   const token = await getAccessToken();
-  const sala = CFG.sala2Name; // Solo Sala B en esta app
+  const sala = CFG.sala2Name; // Sala Pilpilen
   const myEmail = currentUser.username ? currentUser.username.toLowerCase() : '';
   const myName = currentUser.name || myEmail;
   const isVentas = myEmail === CFG.ventasAccount.toLowerCase();
@@ -550,7 +550,7 @@ async function createGraphEvent(eventData) {
   const attendees = [];
   if (!isVentas) attendees.push({ emailAddress: { address: myEmail, name: myName }, type: 'required' });
   if (CFG.ventasAccount.toLowerCase() !== myEmail) {
-    attendees.push({ emailAddress: { address: CFG.ventasAccount, name: 'Visitas Comerciales' }, type: 'required' });
+    attendees.push({ emailAddress: { address: CFG.ventasAccount, name: 'Agendamiento Pilpilen' }, type: 'required' });
   }
   CC_OBLIGATORIO.forEach(function(email){
     if (email.toLowerCase() !== myEmail) attendees.push({ emailAddress: { address: email, name: email }, type: 'optional' });
@@ -589,7 +589,7 @@ async function createGraphEvent(eventData) {
       start: { dateTime: eventData.start, timeZone: 'America/Santiago' },
       end: { dateTime: eventData.end, timeZone: 'America/Santiago' },
       location: { displayName: sala },
-      body: { contentType: 'HTML', content: '<p>Sala reservada para visita comercial. Detalle disponible en Visitas Comerciales.</p>' },
+      body: { contentType: 'HTML', content: '<p>Sala reservada para visita comercial. Detalle disponible en Agendamiento Pilpilen.</p>' },
       isOnlineMeeting: false
     };
     const isCentral = myEmail === CFG.centralAccount.toLowerCase();
