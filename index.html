@@ -593,15 +593,24 @@ async function createGraphEvent(eventData) {
     created = await resp.json();
   }
 
-  // ── Evento ESPEJO simple en el calendario central (asistenteti@mdai.cl) ──
-  // Sin detalle del cliente, solo marca la sala como ocupada para la app principal
+  // ── Evento ESPEJO en el calendario central (asistenteti@mdai.cl) ──
+  // Visible en la app principal de MDA: muestra quien reservo y el motivo
+  // La ubicacion usa "Sala B" para que la app MDA lo detecte correctamente
   try {
+    const mirrorHtmlBody =
+      '<p><b>Visita comercial - Sala Pilpilen (Sala B)</b></p>' +
+      '<p><b>Cliente:</b> ' + eventData.title + '</p>' +
+      '<p><b>Organiza:</b> ' + myName + ' (' + myEmail + ')</p>' +
+      (eventData.description ? '<p><b>Notas:</b> ' + eventData.description + '</p>' : '') +
+      '<br><p style="color:#555;font-size:12px">Reservado via Agendamiento Pilpilen</p>';
+
     const mirrorBody = {
-      subject: '[' + sala + '] Sala ocupada - Visita comercial',
+      subject: '[Sala B] Visita comercial - ' + eventData.title,
       start: { dateTime: eventData.start, timeZone: 'America/Santiago' },
       end: { dateTime: eventData.end, timeZone: 'America/Santiago' },
-      location: { displayName: sala },
-      body: { contentType: 'HTML', content: '<p>Sala reservada para visita comercial. Detalle disponible en Agendamiento Pilpilen.</p>' },
+      // Usar "Sala B" en la ubicacion para que la app MDA lo detecte y bloquee
+      location: { displayName: 'Sala B - Sala Pilpilen' },
+      body: { contentType: 'HTML', content: mirrorHtmlBody },
       isOnlineMeeting: false
     };
     const isCentral = myEmail === CFG.centralAccount.toLowerCase();
@@ -610,6 +619,8 @@ async function createGraphEvent(eventData) {
     const mirrorCreated = await mirrorResp.json();
     if (created && mirrorCreated && mirrorCreated.id) {
       created.mirrorId = mirrorCreated.id;
+    } else if (mirrorCreated && mirrorCreated.error) {
+      console.warn('[VisitasApp] Error creando espejo:', mirrorCreated.error.message);
     }
   } catch(e) {
     console.error('[VisitasApp] Error creando evento espejo:', e);
