@@ -386,7 +386,7 @@ async function signIn() {
   try {
     await setupMSAL();
     if (!msalInstance) { hideLoading(); toast('Error de configuracion', 'error'); return; }
-    const resp = await msalInstance.loginPopup({ scopes: ['User.Read', 'Calendars.ReadWrite', 'OnlineMeetings.ReadWrite', 'Mail.Send'] });
+    const resp = await msalInstance.loginPopup({ scopes: ['User.Read', 'Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'] });
     currentUser = resp.account;
     hideLoading();
     checkAuthorizationAndShow();
@@ -415,10 +415,10 @@ function signOut() {
 async function getAccessToken() {
   if (!msalInstance || !currentUser) return null;
   try {
-    const result = await msalInstance.acquireTokenSilent({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite', 'Mail.Send'], account: currentUser });
+    const result = await msalInstance.acquireTokenSilent({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'], account: currentUser });
     return result.accessToken;
   } catch(e) {
-    const result = await msalInstance.acquireTokenPopup({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite', 'Mail.Send'] });
+    const result = await msalInstance.acquireTokenPopup({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'] });
     return result.accessToken;
   }
 }
@@ -880,11 +880,39 @@ function navigateToEvent(ev) { currentDate = new Date(ev.start); renderCalendar(
 // ── CORREO DE AVISO ──
 async function enviarCorreoAviso(eventData) {
   if (!isGraphAvailable || !currentUser) return;
+
+  // Solo enviar correo para reservas en la franja comercial (Lun/Mie/Vie 9:30-13:30)
+  const startDt = new Date(eventData.start);
+  const startTime = pad(startDt.getHours()) + ':' + pad(startDt.getMinutes());
+  const endDt = new Date(eventData.end);
+  const endTime = pad(endDt.getHours()) + ':' + pad(endDt.getMinutes());
+  const restriction = rangeRestriction(formatDateLocal(startDt), startTime, endTime);
+  if (restriction !== 'vendor') {
+    console.log('[Pilpilen] Reserva fuera de franja comercial, no se envia correo');
+    return;
+  }
+
   try {
-    const token = await getAccessToken();
-    const start = new Date(eventData.start);
-    const end = new Date(eventData.end);
-    const ejecutivo = eventData.organizer || currentUser.name || currentUser.username;
+    // Solicitar token con Mail.Send separadamente para no bloquear el login
+    let mailToken = null;
+    try {
+      const result = await msalInstance.acquireTokenSilent({
+        scopes: ['Mail.Send'],
+        account: currentUser
+      });
+      mailToken = result.accessToken;
+    } catch(e) {
+      // Si falla silencioso intentar popup
+      try {
+        const result = await msalInstance.acquireTokenPopup({ scopes: ['Mail.Send'] });
+        mailToken = result.accessToken;
+      } catch(e2) {
+        console.warn('[Pilpilen] No se pudo obtener token Mail.Send, correo no enviado');
+        return;
+      }
+    }
+
+    const ejecutivo = eventData.organizer || (currentUser && (currentUser.name || currentUser.username)) || 'Ejecutivo';
     const salaName = 'Sala Pilpilen';
 
     const htmlBody =
@@ -895,17 +923,17 @@ async function enviarCorreoAviso(eventData) {
       '<tr><td style="padding:20px;background:#f8fafc">' +
       '<table style="width:100%;border-collapse:collapse">' +
       '<tr><td style="padding:8px 0;color:#64748b;font-size:13px;width:140px">Cliente:</td>' +
-      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + eventData.title + '</td></tr>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + escHtml(eventData.title) + '</td></tr>' +
       '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Sala:</td>' +
       '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + salaName + '</td></tr>' +
       '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Fecha:</td>' +
-      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + formatDateDisplay(start) + '</td></tr>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + formatDateDisplay(startDt) + '</td></tr>' +
       '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Horario:</td>' +
-      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + formatTime(start) + ' - ' + formatTime(end) + '</td></tr>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + formatTime(startDt) + ' - ' + formatTime(endDt) + '</td></tr>' +
       '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Ejecutivo:</td>' +
-      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + ejecutivo + '</td></tr>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + escHtml(ejecutivo) + '</td></tr>' +
       (eventData.description ? '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Notas:</td>' +
-      '<td style="padding:8px 0;color:#334155">' + eventData.description + '</td></tr>' : '') +
+      '<td style="padding:8px 0;color:#334155">' + escHtml(eventData.description.replace(/<[^>]+>/g,'').trim()) + '</td></tr>' : '') +
       '</table></td></tr>' +
       (eventData.teamsUrl ? '<tr><td style="padding:16px 20px;background:#f8fafc">' +
       '<a href="' + eventData.teamsUrl + '" style="background:#0891b2;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Unirse a la reunion de Teams</a>' +
@@ -915,7 +943,7 @@ async function enviarCorreoAviso(eventData) {
 
     const mailBody = {
       message: {
-        subject: 'Nueva visita agendada - ' + eventData.title + ' (' + formatTime(start) + ')',
+        subject: 'Nueva visita agendada - ' + eventData.title + ' (' + formatTime(startDt) + ')',
         body: { contentType: 'HTML', content: htmlBody },
         toRecipients: [
           { emailAddress: { address: 'mbustamente@mdai.cl', name: 'Macarena Bustamante' } },
@@ -926,12 +954,16 @@ async function enviarCorreoAviso(eventData) {
       saveToSentItems: false
     };
 
-    await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+    const resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
       method: 'POST',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      headers: { Authorization: 'Bearer ' + mailToken, 'Content-Type': 'application/json' },
       body: JSON.stringify(mailBody)
     });
-    console.log('[Pilpilen] Correo de aviso enviado');
+    if (resp.status === 202) {
+      console.log('[Pilpilen] Correo de aviso enviado a Sandra, Macarena y Lissette');
+    } else {
+      console.warn('[Pilpilen] sendMail status:', resp.status);
+    }
   } catch(e) {
     console.error('[Pilpilen] Error enviando correo de aviso:', e);
   }
@@ -944,13 +976,23 @@ function descargarExcel() {
     return;
   }
 
-  // Sort events by date ascending
-  const sorted = events.slice().sort(function(a, b) {
+  // Filtrar SOLO visitas de franjas comerciales (Lun/Mie/Vie 9:30-13:30)
+  // Excluir reservas fuera de horario de ventas
+  const comerciales = events.filter(function(ev) {
+    const startDt = new Date(ev.start);
+    const startTime = pad(startDt.getHours()) + ':' + pad(startDt.getMinutes());
+    const endDt = new Date(ev.end);
+    const endTime = pad(endDt.getHours()) + ':' + pad(endDt.getMinutes());
+    const restriction = rangeRestriction(formatDateLocal(startDt), startTime, endTime);
+    return restriction === 'vendor';
+  });
+
+  const sorted = comerciales.slice().sort(function(a, b) {
     return new Date(a.start) - new Date(b.start);
   });
 
   if (sorted.length === 0) {
-    toast('No hay visitas en el historial', 'info');
+    toast('No hay visitas comerciales en el historial', 'info');
     return;
   }
 
@@ -999,8 +1041,8 @@ function descargarExcel() {
   XLSX.utils.book_append_sheet(wb, ws, 'Historial Visitas');
 
   const today = formatDateLocal(new Date());
-  XLSX.writeFile(wb, 'Historial_Pilpilen_' + today + '.xlsx');
-  toast('Historial descargado (' + sorted.length + ' visitas)', 'success');
+  XLSX.writeFile(wb, 'Visitas_Comerciales_Pilpilen_' + today + '.xlsx');
+  toast('Historial descargado (' + sorted.length + ' visitas comerciales)', 'success');
 }
 
 // Mostrar/ocultar boton Excel segun permisos del usuario
