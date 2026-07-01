@@ -208,6 +208,7 @@
       <div class="legend-item"><div class="legend-dot" style="background:var(--sala2)"></div><span>Sala Pilpilen</span></div>
     </div>
     <button class="btn-new" id="btn-new-visit" onclick="openBookingModal()">+ Nueva visita</button>
+    <button class="btn-new" id="btn-excel" onclick="descargarExcel()" style="display:none;background:var(--success);margin-left:6px;" title="Descargar historial Excel">Descargar historial</button>
   </div>
 
   <div class="calendar-wrap" id="calendar-wrap"></div>
@@ -262,6 +263,7 @@
   <div class="credit">alacalufe-software</div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.21.0/lib/msal-browser.min.js"></script>
 <script>
 (function(){
@@ -294,8 +296,17 @@ const VENDEDORES_AUTORIZADOS = [
   'jdiaz@externomdai.cl',
   'iormazabal@externo.mdai.cl',
   'jj@externomdai.cl',
-  'sgomez@externomdai.cl'
+  'sgomez@externomdai.cl',
+  'lmenezes@mdai.cl'
 ].map(function(e){ return e.toLowerCase(); });
+
+// Usuarios con permiso de descargar el historial Excel
+const ADMIN_DESCARGA = ['mbustamente@mdai.cl', 'ssoto@mdai.cl', 'lmenezes@mdai.cl'].map(function(e){ return e.toLowerCase(); });
+
+function puedeDescargarHistorial(email) {
+  if (!email) return false;
+  return ADMIN_DESCARGA.indexOf(email.toLowerCase()) !== -1;
+}
 
 const CC_OBLIGATORIO = ['mbustamente@mdai.cl', 'ssoto@mdai.cl', 'lmenezes@mdai.cl'];
 
@@ -375,7 +386,7 @@ async function signIn() {
   try {
     await setupMSAL();
     if (!msalInstance) { hideLoading(); toast('Error de configuracion', 'error'); return; }
-    const resp = await msalInstance.loginPopup({ scopes: ['User.Read', 'Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'] });
+    const resp = await msalInstance.loginPopup({ scopes: ['User.Read', 'Calendars.ReadWrite', 'OnlineMeetings.ReadWrite', 'Mail.Send'] });
     currentUser = resp.account;
     hideLoading();
     checkAuthorizationAndShow();
@@ -404,10 +415,10 @@ function signOut() {
 async function getAccessToken() {
   if (!msalInstance || !currentUser) return null;
   try {
-    const result = await msalInstance.acquireTokenSilent({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'], account: currentUser });
+    const result = await msalInstance.acquireTokenSilent({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite', 'Mail.Send'], account: currentUser });
     return result.accessToken;
   } catch(e) {
-    const result = await msalInstance.acquireTokenPopup({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'] });
+    const result = await msalInstance.acquireTokenPopup({ scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite', 'Mail.Send'] });
     return result.accessToken;
   }
 }
@@ -436,6 +447,7 @@ function showApp() {
   const initials = name.split(' ').map(function(p){return p[0];}).join('').slice(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
   renderCalendar();
+  actualizarBotonExcel();
   startTimeUpdater();
   syncFromGraph();
 }
@@ -731,6 +743,8 @@ async function createBooking() {
   saveEvents();
   hideLoading();
   toast('Visita creada y sincronizada con Teams', 'success');
+  // Enviar correo de aviso a Sandra, Macarena y Lissette
+  enviarCorreoAviso(eventData);
   renderCalendar();
   navigateToEvent(eventData);
 }
@@ -862,6 +876,140 @@ function getEventsForDate(d) { return events.filter(function(e){ return isSameDa
 function getTimePct() { const now = new Date(); return ((now.getHours() + now.getMinutes()/60) - HOURS_START) * SLOT_H; }
 function scrollToWorkHours() { setTimeout(function(){ document.getElementById('calendar-wrap').scrollTop = (9 - HOURS_START) * SLOT_H; }, 50); }
 function navigateToEvent(ev) { currentDate = new Date(ev.start); renderCalendar(); }
+
+// ── CORREO DE AVISO ──
+async function enviarCorreoAviso(eventData) {
+  if (!isGraphAvailable || !currentUser) return;
+  try {
+    const token = await getAccessToken();
+    const start = new Date(eventData.start);
+    const end = new Date(eventData.end);
+    const ejecutivo = eventData.organizer || currentUser.name || currentUser.username;
+    const salaName = 'Sala Pilpilen';
+
+    const htmlBody =
+      '<table style="font-family:Segoe UI,Arial,sans-serif;border-collapse:collapse;width:100%;max-width:600px">' +
+      '<tr><td style="background:#0891b2;padding:20px;color:#fff">' +
+      '<h2 style="margin:0;font-size:18px">Nueva visita agendada - ' + salaName + '</h2>' +
+      '</td></tr>' +
+      '<tr><td style="padding:20px;background:#f8fafc">' +
+      '<table style="width:100%;border-collapse:collapse">' +
+      '<tr><td style="padding:8px 0;color:#64748b;font-size:13px;width:140px">Cliente:</td>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + eventData.title + '</td></tr>' +
+      '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Sala:</td>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + salaName + '</td></tr>' +
+      '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Fecha:</td>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + formatDateDisplay(start) + '</td></tr>' +
+      '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Horario:</td>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + formatTime(start) + ' - ' + formatTime(end) + '</td></tr>' +
+      '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Ejecutivo:</td>' +
+      '<td style="padding:8px 0;font-weight:600;color:#0f172a">' + ejecutivo + '</td></tr>' +
+      (eventData.description ? '<tr><td style="padding:8px 0;color:#64748b;font-size:13px">Notas:</td>' +
+      '<td style="padding:8px 0;color:#334155">' + eventData.description + '</td></tr>' : '') +
+      '</table></td></tr>' +
+      (eventData.teamsUrl ? '<tr><td style="padding:16px 20px;background:#f8fafc">' +
+      '<a href="' + eventData.teamsUrl + '" style="background:#0891b2;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Unirse a la reunion de Teams</a>' +
+      '</td></tr>' : '') +
+      '<tr><td style="padding:12px 20px;background:#e2e8f0;font-size:11px;color:#94a3b8">Enviado automaticamente por Agendamiento Pilpilen</td></tr>' +
+      '</table>';
+
+    const mailBody = {
+      message: {
+        subject: 'Nueva visita agendada - ' + eventData.title + ' (' + formatTime(start) + ')',
+        body: { contentType: 'HTML', content: htmlBody },
+        toRecipients: [
+          { emailAddress: { address: 'mbustamente@mdai.cl', name: 'Macarena Bustamante' } },
+          { emailAddress: { address: 'ssoto@mdai.cl', name: 'Sandra Soto' } },
+          { emailAddress: { address: 'lmenezes@mdai.cl', name: 'Lissette Menezes' } }
+        ]
+      },
+      saveToSentItems: false
+    };
+
+    await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(mailBody)
+    });
+    console.log('[Pilpilen] Correo de aviso enviado');
+  } catch(e) {
+    console.error('[Pilpilen] Error enviando correo de aviso:', e);
+  }
+}
+
+// ── EXCEL DOWNLOAD ──
+function descargarExcel() {
+  if (!puedeDescargarHistorial(currentUser && currentUser.username ? currentUser.username.toLowerCase() : '')) {
+    toast('No tienes permiso para descargar el historial', 'error');
+    return;
+  }
+
+  // Sort events by date ascending
+  const sorted = events.slice().sort(function(a, b) {
+    return new Date(a.start) - new Date(b.start);
+  });
+
+  if (sorted.length === 0) {
+    toast('No hay visitas en el historial', 'info');
+    return;
+  }
+
+  const headers = ['Fecha', 'Hora inicio', 'Hora fin', 'Duracion', 'Cliente', 'Sala', 'Ejecutivo', 'Notas', 'Enlace Teams'];
+
+  const rows = sorted.map(function(ev) {
+    const start = new Date(ev.start);
+    const end = new Date(ev.end);
+    const mins = Math.round((end - start) / 60000);
+    const dur = mins >= 60 ? Math.floor(mins/60) + 'h ' + (mins%60 ? (mins%60) + 'min' : '') : mins + 'min';
+    const salaName = ev.sala === 2 ? 'Sala Pilpilen' : 'Sala A';
+    return [
+      formatDateDisplay(start),
+      formatTime(start),
+      formatTime(end),
+      dur.trim(),
+      ev.title || '',
+      salaName,
+      ev.organizer || '',
+      (ev.description || '').replace(/<[^>]+>/g, '').trim(),
+      ev.teamsUrl || ''
+    ];
+  });
+
+  const wsData = [headers].concat(rows);
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Column widths
+  ws['!cols'] = [
+    {wch: 26}, {wch: 12}, {wch: 12}, {wch: 12},
+    {wch: 35}, {wch: 16}, {wch: 28}, {wch: 35}, {wch: 45}
+  ];
+
+  // Style header row
+  headers.forEach(function(_, i) {
+    var cellRef = XLSX.utils.encode_cell({r: 0, c: i});
+    if (!ws[cellRef]) return;
+    ws[cellRef].s = {
+      font: { bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '0891B2' } },
+      alignment: { horizontal: 'center' }
+    };
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Historial Visitas');
+
+  const today = formatDateLocal(new Date());
+  XLSX.writeFile(wb, 'Historial_Pilpilen_' + today + '.xlsx');
+  toast('Historial descargado (' + sorted.length + ' visitas)', 'success');
+}
+
+// Mostrar/ocultar boton Excel segun permisos del usuario
+function actualizarBotonExcel() {
+  const btn = document.getElementById('btn-excel');
+  if (!btn) return;
+  const myEmail = currentUser && currentUser.username ? currentUser.username.toLowerCase() : '';
+  btn.style.display = puedeDescargarHistorial(myEmail) ? 'inline-flex' : 'none';
+}
 
 function startTimeUpdater() {
   setInterval(function(){
